@@ -1,0 +1,191 @@
+# docker-compose.yml
+# ─────────────────────────────────────────────────────────────────────────────
+# Minimal production Hermes stack, fronted by Caddy (automatic HTTPS).
+#
+#   Internet ──▶ Caddy (:80/:443) ──▶ Hermes Workspace ──▶ Hermes Agent ──▶ 9Router ──▶ Anthropic
+#
+# Only Caddy publishes ports (80/443). Every other service listens on the
+# internal bridge network `hermes` and is unreachable from the host directly.
+# Hermes never sees an Anthropic key — it talks only to 9Router, which holds
+# the upstream provider credentials (added later in the 9Router dashboard).
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ── Reverse proxy / TLS termination — the only internet-facing service ──────
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"          # HTTP/3 (QUIC)
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./volumes/caddy-data:/data       # certificates + ACME account (persist!)
+      - ./volumes/caddy-config:/config
+    environment:
+      - HERMES_DOMAIN=${HERMES_DOMAIN}
+      - ROUTER_DOMAIN=${ROUTER_DOMAIN:-}
+      - ACME_EMAIL=${ACME_EMAIL}
+    depends_on:
+      - workspace
+    networks:
+      - hermes
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── Hermes Workspace — the web UI the user logs into ───────────────────────
+  workspace:
+    image: ghcr.io/outsourc-e/hermes-workspace:latest
+    container_name: hermes-workspace
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Talk to the Hermes Agent gateway + dashboard by service name over the bridge.
+      - HERMES_API_URL=http://hermes-agent:8642
+      - HERMES_DASHBOARD_URL=http://hermes-dashboard:9119
+      # Gateway auth token — must equal API_SERVER_KEY the gateway starts with.
+      - HERMES_API_TOKEN=${API_SERVER_KEY}
+      - HERMES_DASHBOARD_TOKEN=${API_SERVER_KEY}
+      # UI login password (required: the container binds 0.0.0.0 behind Caddy).
+      - HERMES_PASSWORD=${HERMES_PASSWORD}
+      # TLS is terminated at Caddy, so keep Secure cookies on and trust the proxy.
+      - COOKIE_SECURE=1
+      - TRUST_PROXY=1
+    depends_on:
+      hermes-agent:
+        condition: service_healthy
+      hermes-dashboard:
+        condition: service_started
+    networks:
+      - hermes
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── Hermes Agent (gateway) — chat/models/streaming API on :8642 ────────────
+  hermes-agent:
+    image: nousresearch/hermes-agent:latest
+    container_name: hermes-agent
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Expose the OpenAI-compatible gateway on the bridge so Workspace can reach it.
+      - API_SERVER_ENABLED=true
+      - API_SERVER_HOST=0.0.0.0
+      - API_SERVER_KEY=${API_SERVER_KEY}
+      # Own the mounted data dir as this uid/gid (see volumes/hermes on the host).
+      - HERMES_UID=${HERMES_UID:-10000}
+      - HERMES_GID=${HERMES_GID:-10000}
+    volumes:
+      - ./volumes/hermes:/opt/data                     # HERMES_HOME (sessions, memory, skills, creds)
+      - ./hermes/config.yaml:/opt/data/config.yaml:ro  # provider wiring → 9Router only
+    depends_on:
+      9router:
+        condition: service_started
+    networks:
+      - hermes
+    # /init is s6-overlay PID 1 (the image ENTRYPOINT); command is the service to run.
+    command: ["gateway", "run"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:8642/health').status==200 else sys.exit(1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── Hermes Agent (dashboard) — sessions/skills/config/MCP API on :9119 ─────
+  # Same image, second command. Shares the HERMES_HOME volume with the gateway.
+  hermes-dashboard:
+    image: nousresearch/hermes-agent:latest
+    container_name: hermes-dashboard
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - HERMES_UID=${HERMES_UID:-10000}
+      - HERMES_GID=${HERMES_GID:-10000}
+    volumes:
+      - ./volumes/hermes:/opt/data
+      - ./hermes/config.yaml:/opt/data/config.yaml:ro
+    depends_on:
+      hermes-agent:
+        condition: service_started
+    networks:
+      - hermes
+    # Bind 0.0.0.0 so Workspace can reach it across the bridge. Never published to the host.
+    command: ["dashboard", "--host", "0.0.0.0", "--no-open"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── 9Router — LLM router; holds the upstream provider keys, exposes OpenAI API ─
+  9router:
+    image: decolua/9router:latest
+    container_name: 9router
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - DATA_DIR=/app/data
+      - PORT=${PORT:-20128}
+      - NODE_ENV=production
+      - HOSTNAME=0.0.0.0
+      - REQUIRE_API_KEY=true
+      - AUTH_COOKIE_SECURE=true
+      - HEADROOM_URL=http://headroom:8787
+    volumes:
+      - ./volumes/9router:/app/data
+    depends_on:
+      - headroom
+    networks:
+      - hermes
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:20128/',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── headroom — 9Router's observability/telemetry sidecar (internal only) ────
+  headroom:
+    image: ghcr.io/chopratejas/headroom:latest
+    container_name: headroom
+    restart: unless-stopped
+    networks:
+      - hermes
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  hermes:
+    driver: bridge

@@ -1,0 +1,27 @@
+# hermes/config.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+# Hermes Agent → 9Router wiring ONLY.
+#
+# Hermes talks to 9Router's OpenAI-compatible endpoint. It never holds an
+# Anthropic key — 9Router stores the upstream provider credentials and routes
+# to Anthropic Claude. See the README for how to create the 9Router API key
+# and set the model name below to whatever you expose in the 9Router dashboard.
+# ─────────────────────────────────────────────────────────────────────────────
+
+model:
+  # Route through the custom provider defined below (NOT "anthropic").
+  provider: "9router"
+  # Model id as exposed by 9Router. Change to match the model/route you configure
+  # in the 9Router dashboard (e.g. "claude-sonnet-4-5", "anthropic/claude-...").
+  default: "claude-sonnet-4-5"
+
+custom_providers:
+  - name: "9router"
+    # 9Router's OpenAI-compatible base URL on the internal bridge network.
+    # NOTE: verify the exact path in your 9Router build — "/v1" is the standard
+    # OpenAI-compatible mount. Adjust here if the dashboard shows a different path.
+    base_url: "http://9router:20128/v1"
+    # The 9Router API key you create in its dashboard (Settings → API Keys),
+    # supplied via .env. Hermes reads it from this environment variable.
+    key_env: "ROUTER_API_KEY"
+    api_mode: "chat_completions"
