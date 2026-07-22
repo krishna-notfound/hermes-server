@@ -21,7 +21,8 @@ custom_providers:
     # NOTE: verify the exact path in your 9Router build — "/v1" is the standard
     # OpenAI-compatible mount. Adjust here if the dashboard shows a different path.
     base_url: "http://9router:20128/v1"
-    # The 9Router API key you create in its dashboard (Settings → API Keys),
-    # supplied via .env. Hermes reads it from this environment variable.
-    key_env: "ROUTER_API_KEY"
+    # The 9Router API key you create in its dashboard (Settings → API Keys).
+    # Expanded from ROUTER_API_KEY in .env. `api_key` is the documented field
+    # for custom_providers (key_env only applies to the `providers:` block).
+    api_key: "${ROUTER_API_KEY}"
     api_mode: "chat_completions"
