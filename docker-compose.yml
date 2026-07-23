@@ -2,9 +2,8 @@
 # Production Hermes stack behind Caddy.
 #
 # Public entry points:
-#   https://${HERMES_DOMAIN}            -> Hermes Workspace
-#   https://${HERMES_DASHBOARD_DOMAIN}  -> Hermes Agent dashboard/API
-#   https://${ROUTER_DOMAIN}            -> 9Router admin UI, optional
+#   https://${DASHBOARD_DOMAIN}  -> Hermes Workspace
+#   https://${ROUTER_DOMAIN}     -> 9Router admin UI, optional
 #
 # Hermes Agent runs in the official Docker shape: one container starts
 # `gateway run`, and the dashboard is supervised inside the same container via
@@ -25,8 +24,7 @@ services:
       - ./volumes/caddy-data:/data
       - ./volumes/caddy-config:/config
     environment:
-      - HERMES_DOMAIN=${HERMES_DOMAIN}
-      - HERMES_DASHBOARD_DOMAIN=${HERMES_DASHBOARD_DOMAIN:-}
+      - DASHBOARD_DOMAIN=${DASHBOARD_DOMAIN}
       - ROUTER_DOMAIN=${ROUTER_DOMAIN:-}
       - ACME_EMAIL=${ACME_EMAIL}
     depends_on:
@@ -52,7 +50,7 @@ services:
       - HERMES_API_TOKEN=${API_SERVER_KEY}
       # Dashboard owns sessions, skills, config, MCP, and admin APIs.
       - HERMES_DASHBOARD_URL=http://hermes:9119
-      - HERMES_DASHBOARD_PUBLIC_URL=https://${HERMES_DASHBOARD_DOMAIN}
+      - HERMES_DASHBOARD_PUBLIC_URL=http://hermes:9119
       # Workspace's own login password.
       - HERMES_PASSWORD=${HERMES_PASSWORD}
       - COOKIE_SECURE=1
@@ -89,7 +87,7 @@ services:
       - HERMES_DASHBOARD=1
       - HERMES_DASHBOARD_HOST=0.0.0.0
       - HERMES_DASHBOARD_PORT=9119
-      - HERMES_DASHBOARD_PUBLIC_URL=https://${HERMES_DASHBOARD_DOMAIN}
+      - HERMES_DASHBOARD_PUBLIC_URL=https://${DASHBOARD_DOMAIN}
       # Self-hosted dashboard auth provider. For public internet exposure,
       # prefer putting this hostname behind VPN/IP allowlisting or use OIDC.
       - HERMES_DASHBOARD_BASIC_AUTH_USERNAME=${HERMES_DASHBOARD_BASIC_AUTH_USERNAME}

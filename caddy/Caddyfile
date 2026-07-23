@@ -5,17 +5,9 @@
 }
 
 # Hermes Workspace - public web UI.
-{$HERMES_DOMAIN} {
+{$DASHBOARD_DOMAIN} {
 	encode zstd gzip
 	reverse_proxy workspace:3000
-}
-
-# Hermes Agent dashboard/backend - owns skills, sessions, config, MCP, and admin APIs.
-# This hostname must be protected by dashboard auth, and ideally also by VPN,
-# Tailscale, or IP allowlisting for public EC2 deployments.
-{$HERMES_DASHBOARD_DOMAIN:dashboard.invalid} {
-	encode zstd gzip
-	reverse_proxy hermes:9119
 }
 
 # Optional 9Router admin dashboard.

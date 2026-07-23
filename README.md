@@ -5,7 +5,6 @@ Caddy with automatic HTTPS.
 
 ```text
 Browser -> Caddy -> Hermes Workspace
-Browser -> Caddy -> Hermes Agent dashboard/API
 Hermes Workspace -> Hermes Agent gateway -> 9Router -> model provider
 ```
 
@@ -22,15 +21,13 @@ the supervised container.
 
 - A Linux server with Docker Engine and Compose v2.
 - DNS records pointing at the server:
-  - `HERMES_DOMAIN`, for Workspace.
-  - `HERMES_DASHBOARD_DOMAIN`, for the Hermes Agent dashboard/API.
-  - `ROUTER_DOMAIN`, optional, for 9Router admin.
+  - `DASHBOARD_DOMAIN`, for the Hermes dashboard/workspace.
+  - `ROUTER_DOMAIN`, for 9Router admin.
 - Ports 80 and 443 open to the internet.
 
-For a public EC2 deployment, put `HERMES_DASHBOARD_DOMAIN` behind VPN,
-Tailscale, IP allowlisting, or use a stronger identity provider such as OIDC.
-The included basic-auth variables are the simplest self-hosted auth provider,
-but the dashboard is a sensitive admin surface.
+For a public EC2 deployment, protect both hostnames carefully. The included
+Hermes dashboard basic-auth variables are the simplest self-hosted auth
+provider, but the dashboard is still a sensitive admin surface.
 
 ## Configure
 
@@ -42,8 +39,8 @@ Set at minimum:
 
 | Variable | What to set |
 |---|---|
-| `HERMES_DOMAIN` | Workspace hostname, for example `hermes.example.com` |
-| `HERMES_DASHBOARD_DOMAIN` | Dashboard/API hostname, for example `agent.example.com` |
+| `DASHBOARD_DOMAIN` | Hermes dashboard/workspace hostname, for example `dashboard.example.com` |
+| `ROUTER_DOMAIN` | 9Router hostname, for example `router.example.com` |
 | `ACME_EMAIL` | Email for Let's Encrypt |
 | `API_SERVER_KEY` | `openssl rand -hex 32` |
 | `HERMES_DASHBOARD_BASIC_AUTH_USERNAME` | Dashboard username |
@@ -71,9 +68,8 @@ docker compose logs -f
 
 | Service | URL |
 |---|---|
-| Hermes Workspace | `https://${HERMES_DOMAIN}` |
-| Hermes Agent dashboard/API | `https://${HERMES_DASHBOARD_DOMAIN}` |
-| 9Router dashboard | `https://${ROUTER_DOMAIN}` if configured |
+| Hermes dashboard/workspace | `https://${DASHBOARD_DOMAIN}` |
+| 9Router dashboard | `https://${ROUTER_DOMAIN}` |
 
 Log into the Hermes Agent dashboard with
 `HERMES_DASHBOARD_BASIC_AUTH_USERNAME` and
