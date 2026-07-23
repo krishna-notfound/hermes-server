@@ -1,20 +1,24 @@
-# Caddyfile — automatic HTTPS reverse proxy for the Hermes stack.
-# Domains and email come from the environment (see docker-compose.yml / .env).
-# Caddy provisions and renews Let's Encrypt certificates automatically.
+# Caddyfile - automatic HTTPS reverse proxy for the Hermes stack.
 
 {
 	email {$ACME_EMAIL}
 }
 
-# Hermes Workspace — the public entry point.
+# Hermes Workspace - public web UI.
 {$HERMES_DOMAIN} {
 	encode zstd gzip
 	reverse_proxy workspace:3000
 }
 
-# OPTIONAL 9Router admin dashboard.
-# This block only activates when ROUTER_DOMAIN is set in .env; when empty,
-# Caddy serves it on an unreachable placeholder host, keeping 9Router internal.
+# Hermes Agent dashboard/backend - owns skills, sessions, config, MCP, and admin APIs.
+# This hostname must be protected by dashboard auth, and ideally also by VPN,
+# Tailscale, or IP allowlisting for public EC2 deployments.
+{$HERMES_DASHBOARD_DOMAIN:dashboard.invalid} {
+	encode zstd gzip
+	reverse_proxy hermes:9119
+}
+
+# Optional 9Router admin dashboard.
 {$ROUTER_DOMAIN:router.invalid} {
 	encode zstd gzip
 	reverse_proxy 9router:{$PORT:20128}

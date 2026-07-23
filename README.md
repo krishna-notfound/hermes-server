@@ -1,45 +1,36 @@
 # Hermes Stack
 
-Self-hosted [Hermes Workspace](https://github.com/outsourc-e/hermes-workspace) +
-[Hermes Agent](https://github.com/NousResearch/hermes-agent), routed through
-[9Router](https://hub.docker.com/r/decolua/9router) to Anthropic Claude, behind
+Self-hosted Hermes Workspace + Hermes Agent, routed through 9Router, behind
 Caddy with automatic HTTPS.
 
-```
-Internet ─▶ https://hermes.example.com ─▶ Caddy ─▶ Hermes Workspace
-                                                     └─▶ Hermes Agent ─▶ 9Router ─▶ Anthropic Claude
+```text
+Browser -> Caddy -> Hermes Workspace
+Browser -> Caddy -> Hermes Agent dashboard/API
+Hermes Workspace -> Hermes Agent gateway -> 9Router -> model provider
 ```
 
-Hermes never holds an Anthropic key. **9Router** stores the upstream provider
-credentials; Hermes only ever talks to 9Router.
+Hermes Agent runs in the official Docker shape: one `nousresearch/hermes-agent`
+container starts `gateway run`, and the dashboard is supervised inside that
+same container with `HERMES_DASHBOARD=1`.
 
----
+Do not run a separate `hermes-dashboard` container against the same
+`./volumes/hermes` data directory. Current Hermes dashboard/gateway lifecycle,
+profile detection, skills, and session APIs are designed to be co-located in
+the supervised container.
 
 ## Prerequisites
 
-- A server (Linux) with a public IP.
-- Two DNS records pointing at that server:
-  - `hermes.example.com` → your server IP (required)
-  - `router.example.com` → your server IP (only if you expose the 9Router dashboard)
-- Ports **80** and **443** open to the internet.
-- An Anthropic API key (added later, inside 9Router — not here).
+- A Linux server with Docker Engine and Compose v2.
+- DNS records pointing at the server:
+  - `HERMES_DOMAIN`, for Workspace.
+  - `HERMES_DASHBOARD_DOMAIN`, for the Hermes Agent dashboard/API.
+  - `ROUTER_DOMAIN`, optional, for 9Router admin.
+- Ports 80 and 443 open to the internet.
 
-## Install Docker
-
-Docker Engine + Compose v2 plugin (Ubuntu/Debian):
-
-```bash
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker "$USER"   # log out/in afterwards
-docker compose version            # confirm Compose v2 is present
-```
-
-## Clone
-
-```bash
-git clone <your-repo-url> hermes-stack
-cd hermes-stack
-```
+For a public EC2 deployment, put `HERMES_DASHBOARD_DOMAIN` behind VPN,
+Tailscale, IP allowlisting, or use a stronger identity provider such as OIDC.
+The included basic-auth variables are the simplest self-hosted auth provider,
+but the dashboard is a sensitive admin surface.
 
 ## Configure
 
@@ -47,34 +38,31 @@ cd hermes-stack
 cp .env.example .env
 ```
 
-Edit `.env` and set, at minimum:
+Set at minimum:
 
 | Variable | What to set |
 |---|---|
-| `HERMES_DOMAIN` | Your public hostname, e.g. `hermes.example.com` |
-| `ACME_EMAIL` | Your email (Let's Encrypt) |
-| `HERMES_PASSWORD` | A strong password for the Workspace login |
+| `HERMES_DOMAIN` | Workspace hostname, for example `hermes.example.com` |
+| `HERMES_DASHBOARD_DOMAIN` | Dashboard/API hostname, for example `agent.example.com` |
+| `ACME_EMAIL` | Email for Let's Encrypt |
 | `API_SERVER_KEY` | `openssl rand -hex 32` |
+| `HERMES_DASHBOARD_BASIC_AUTH_USERNAME` | Dashboard username |
+| `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD` | Strong dashboard password |
+| `HERMES_DASHBOARD_BASIC_AUTH_SECRET` | `openssl rand -hex 32` |
+| `HERMES_PASSWORD` | Workspace login password |
 | `JWT_SECRET` | `openssl rand -hex 32` |
 | `API_KEY_SECRET` | `openssl rand -hex 32` |
 | `MACHINE_ID_SALT` | `openssl rand -hex 32` |
-| `INITIAL_PASSWORD` | First-login password for the 9Router dashboard |
+| `INITIAL_PASSWORD` | First-login password for 9Router |
 | `HERMES_UID` / `HERMES_GID` | Output of `id -u` / `id -g` |
 
-Leave `ROUTER_API_KEY` **blank** for now — you create it after first boot
-(see "Connecting Hermes to 9Router" below). Leave `ROUTER_DOMAIN` blank unless
-you want the 9Router dashboard reachable on its own public hostname.
+Leave `ROUTER_API_KEY` blank for the first boot. Create it in 9Router, paste it
+into `.env`, then restart Hermes.
 
 ## Start
 
 ```bash
 docker compose up -d
-```
-
-Caddy obtains certificates automatically on first run (allow a minute).
-Check status and logs:
-
-```bash
 docker compose ps
 docker compose logs -f
 ```
@@ -83,67 +71,36 @@ docker compose logs -f
 
 | Service | URL |
 |---|---|
-| Hermes Workspace | `https://hermes.example.com` |
-| 9Router dashboard | `https://router.example.com` *(only if `ROUTER_DOMAIN` is set)* |
+| Hermes Workspace | `https://${HERMES_DOMAIN}` |
+| Hermes Agent dashboard/API | `https://${HERMES_DASHBOARD_DOMAIN}` |
+| 9Router dashboard | `https://${ROUTER_DOMAIN}` if configured |
 
-If you did not set `ROUTER_DOMAIN`, reach the 9Router dashboard temporarily via
-an SSH tunnel instead of exposing it:
-
-```bash
-ssh -L 20128:localhost:20128 user@your-server
-docker compose exec 9router true   # (tunnel targets the published-nowhere port)
-```
-
-> The 9Router port is **not** published to the host by default. The simplest
-> way to reach its dashboard is to set `ROUTER_DOMAIN`. Otherwise temporarily
-> add a `ports: ["127.0.0.1:20128:20128"]` mapping to the `9router` service and
-> tunnel to it.
-
-## First login
-
-**Hermes Workspace** — open `https://hermes.example.com`, log in with
-`HERMES_PASSWORD`, and complete onboarding.
-
-**9Router** — open its dashboard, log in with `INITIAL_PASSWORD`, and change
-the password immediately.
-
-## Adding your Anthropic API key inside 9Router
-
-Hermes has no Anthropic key — 9Router does. In the 9Router dashboard:
-
-1. Go to **Providers** and add **Anthropic**.
-2. Paste your Anthropic API key.
-3. Enable the Claude model(s) you want to route to.
-
-9Router now talks to Anthropic on your behalf.
+Log into the Hermes Agent dashboard with
+`HERMES_DASHBOARD_BASIC_AUTH_USERNAME` and
+`HERMES_DASHBOARD_BASIC_AUTH_PASSWORD`. This dashboard owns `/api/skills`,
+`/api/sessions`, config, MCP, and admin APIs. The gateway on `:8642` owns the
+OpenAI-compatible `/v1/*` API and health checks.
 
 ## Connecting Hermes to 9Router
 
-1. In the 9Router dashboard, open **Settings → API Keys** and create a new key.
-2. Copy it into `.env`:
-
-   ```env
-   ROUTER_API_KEY=<the key you just created>
-   ```
-
-3. Make sure `hermes/config.yaml` `model.default` matches a model/route you
-   enabled in 9Router (edit it if needed).
-4. Restart the agent so it picks up the key and config:
-
-   ```bash
-   docker compose up -d hermes-agent hermes-dashboard
-   ```
-
-Send a message in the Workspace — it now flows Workspace → Agent → 9Router →
-Anthropic.
-
-## Updating containers
+1. Open the 9Router dashboard.
+2. Add your upstream model provider credentials.
+3. Create a 9Router API key.
+4. Paste it into `.env` as `ROUTER_API_KEY`.
+5. Verify `hermes/config.yaml` `model.default` matches a route/model enabled
+   in 9Router.
+6. Restart Hermes:
 
 ```bash
-docker compose pull        # fetch newer images
-docker compose up -d       # recreate changed containers
-docker image prune -f      # optional: reclaim disk
+docker compose up -d hermes
 ```
 
-Persistent data (certificates, sessions, memory, 9Router DB) lives under
-`./volumes/` and survives updates.
+## Updating
+
+```bash
+docker compose pull
+docker compose up -d
+docker image prune -f
+```
+
+Persistent data lives under `./volumes/` and survives container updates.
